@@ -177,3 +177,10 @@ CASE:
     st.markdown("## Clinical Analysis")
     st.markdown("---")
     st.markdown(f"<div class='output-card'>{formatted_output}</div>", unsafe_allow_html=True)
+
+    # -------- FOOTER --------
+st.markdown("---")
+st.markdown(
+    "<div style='text-align: center; color: gray; font-size: 14px;'>Built by D3V</div>",
+    unsafe_allow_html=True
+)
