@@ -142,22 +142,27 @@ CASE:
 """
 
     with st.spinner("Med-Dev is reasoning..."):
-        response = client.chat_completion(
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a structured clinical reasoning engine. Follow the requested format exactly."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            temperature=0.02,
-            max_tokens=600
-        )
+        try:
+            response = client.chat_completion(
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "You are a structured clinical reasoning engine. Follow the requested format exactly."
+                    },
+                    {
+                        "role": "user",
+                        "content": prompt
+                    }
+                ],
+                temperature=0.02,
+                max_tokens=600
+            )
 
-        raw_output = response.choices[0].message.content
+            raw_output = response.choices[0].message.content
+
+        except Exception:
+            st.error("Model temporarily unavailable. Please retry.")
+            st.stop()
 
     output = raw_output.replace("**", "")
 
