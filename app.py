@@ -21,6 +21,11 @@ body {
     background: linear-gradient(135deg, #0f172a, #1e293b);
     color: #f8fafc;
 }
+            
+            [data-testid="stAppViewContainer"] {
+    background: transparent !important;
+}
+
 h1 { color: #38bdf8; text-align: center; }
 h2, h3 { color: #60a5fa; }
 
