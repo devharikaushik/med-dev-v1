@@ -60,6 +60,7 @@ div[data-baseweb="select"] > div {
     padding: 20px;
     border-radius: 12px;
     box-shadow: 0px 0px 20px rgba(0,0,0,0.4);
+    color: #ffffff !important;
 }
 
 footer {visibility: hidden;}
