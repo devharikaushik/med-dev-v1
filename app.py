@@ -170,7 +170,7 @@ CASE:
                     }
                 ],
                 temperature=0.02,
-                max_tokens=350   # reduced from 600 for stability
+                max_tokens=500   # reduced from 600 for stability
             )
 
             raw_output = response.choices[0].message.content
