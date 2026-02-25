@@ -3,8 +3,16 @@ from huggingface_hub import InferenceClient
 import re
 
 # -------- CONFIG --------
-import os
-HF_TOKEN = os.getenv("HF_TOKEN")
+HF_TOKEN = None
+
+if "HF_TOKEN" in st.secrets:
+    HF_TOKEN = st.secrets["HF_TOKEN"]
+else:
+    import os
+    HF_TOKEN = os.getenv("HF_TOKEN")
+    if not HF_TOKEN:
+     st.error("HuggingFace token not configured.")
+     st.stop()
 MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
 
 client = InferenceClient(
@@ -148,6 +156,7 @@ CASE:
 """
 
     with st.spinner("Med-Dev is reasoning..."):
+
         try:
             response = client.chat_completion(
                 messages=[
@@ -161,28 +170,44 @@ CASE:
                     }
                 ],
                 temperature=0.02,
-                max_tokens=600
+                max_tokens=350   # reduced from 600 for stability
             )
 
             raw_output = response.choices[0].message.content
 
-        except Exception:
-            st.error("Model temporarily unavailable. Please retry.")
+        except Exception as e:
+            st.error(f"Actual error: {e}")
             st.stop()
 
-    output = raw_output.replace("**", "")
+        # -------- SAFE FORMATTING --------
+        formatted_output = raw_output.replace("**", "")
 
-    # Bold the headings
-    formatted_output = output.replace("PROBLEM REPRESENTATION", "**PROBLEM REPRESENTATION**") \
-                             .replace("DOMINANT SYNDROME", "**DOMINANT SYNDROME**") \
-                             .replace("TOP 3 DIFFERENTIALS", "**TOP 3 DIFFERENTIALS**") \
-                             .replace("RED FLAGS", "**RED FLAGS**") \
-                             .replace("BROAD MANAGEMENT PRINCIPLES", "**BROAD MANAGEMENT PRINCIPLES**") \
-                             .replace("CRITICAL MISSING INFORMATION", "**CRITICAL MISSING INFORMATION**")
+        formatted_output = formatted_output.replace(
+            "PROBLEM REPRESENTATION",
+            "<strong>PROBLEM REPRESENTATION</strong>"
+        ).replace(
+            "DOMINANT SYNDROME",
+            "<br><br><strong>DOMINANT SYNDROME</strong>"
+        ).replace(
+            "TOP 3 DIFFERENTIALS",
+            "<br><br><strong>TOP 3 DIFFERENTIALS</strong>"
+        ).replace(
+            "RED FLAGS",
+            "<br><br><strong>RED FLAGS</strong>"
+        ).replace(
+            "BROAD MANAGEMENT PRINCIPLES",
+            "<br><br><strong>BROAD MANAGEMENT PRINCIPLES</strong>"
+        ).replace(
+            "CRITICAL MISSING INFORMATION",
+            "<br><br><strong>CRITICAL MISSING INFORMATION</strong>"
+        )
 
-    st.markdown("## Clinical Analysis")
-    st.markdown("---")
-    st.markdown(f"<div class='output-card'>{formatted_output}</div>", unsafe_allow_html=True)
+        st.markdown("## Clinical Analysis")
+        st.markdown("---")
+        st.markdown(
+            f"<div class='output-card'>{formatted_output}</div>",
+            unsafe_allow_html=True
+        )
 
     # -------- FOOTER --------
 st.markdown("---")
