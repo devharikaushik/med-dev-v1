@@ -358,8 +358,8 @@ if st.button("Generate Clinical Analysis", use_container_width=True):
                     "Unable to generate a complete 6-section analysis after retries. Please rerun."
                 )
 
-        except Exception as exc:
-            st.session_state.generation_error = f"Generation error: {exc}"
+        except Exception:
+            st.session_state.generation_error = "Generation failed. Please retry."
 
 # -------- OUTPUT RENDERING --------
 if st.session_state.generation_error:

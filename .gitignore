@@ -1,2 +1,14 @@
 .streamlit/.DS_Store
 .streamlit/
+
+# Local secrets and tokens
+.env
+.env.*
+!.env.example
+**/secrets.toml
+*.pem
+*.key
+*.p12
+*.pfx
+*.token
+*credentials*.json
