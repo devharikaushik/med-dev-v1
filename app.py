@@ -168,11 +168,11 @@ Follow the requested output format strictly."""
 
             st.session_state.raw_output = response.choices[0].message.content.strip()
 
-            if not raw_output or raw_output.strip() == "":
+            if not st.session_state.raw_output:
                 st.error("Model returned empty response.")
                 st.stop()
 
-            raw_output = raw_output.strip()
+
 
         except Exception as e:
             st.error(f"Actual error: {e}")
