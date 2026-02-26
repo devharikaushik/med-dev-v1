@@ -1,23 +1,10 @@
 import streamlit as st
-from huggingface_hub import InferenceClient
+from groq import Groq
 import re
 
 # -------- CONFIG --------
-HF_TOKEN = None
-
-if "HF_TOKEN" in st.secrets:
-    HF_TOKEN = st.secrets["HF_TOKEN"]
-else:
-    import os
-    HF_TOKEN = os.getenv("HF_TOKEN")
-    if not HF_TOKEN:
-     st.error("HuggingFace token not configured.")
-     st.stop()
-MODEL_NAME = "mistralai/Mistral-7B-Instruct-v0.2"
-
-client = InferenceClient(
-    model=MODEL_NAME,
-    token=HF_TOKEN
+client = Groq(
+    api_key=st.secrets["GROQ_API_KEY"]
 )
 
 st.set_page_config(page_title="Med-Dev", layout="wide")
@@ -134,15 +121,7 @@ Lab Values: {labs}
 """
 
     prompt = f"""
-Provide a concise structured clinical reasoning summary.
-
-Strict Format:
-Each section must appear on ONE line only.
-No numbering.
-No extra commentary.
-Exactly 3 differentials.
-All headings in uppercase.
-Format exactly as:
+Provide a structured clinical reasoning summary using exactly the following headings:
 
 PROBLEM REPRESENTATION - content
 DOMINANT SYNDROME - content
@@ -151,64 +130,80 @@ RED FLAGS - content
 BROAD MANAGEMENT PRINCIPLES - content
 CRITICAL MISSING INFORMATION - content
 
+Rules:
+• Each section must be exactly one concise line.
+• Exactly 3 differentials separated by commas.
+• No numbering.
+• No extra commentary outside the format.
+• Complete all six sections.
+
 CASE:
 {case_input}
 """
 
     with st.spinner("Med-Dev is reasoning..."):
-
         try:
-            response = client.chat_completion(
+            response = client.chat.completions.create(
+                model="openai/gpt-oss-120b",
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a structured clinical reasoning engine. Follow the requested format exactly."
+                        "content": """You are a senior internal medicine consultant performing structured clinical reasoning.
+
+Integrate pathophysiology and contextual prioritization.
+Avoid generic textbook lists.
+Follow the requested output format strictly."""
                     },
                     {
                         "role": "user",
                         "content": prompt
                     }
                 ],
-                temperature=0.02,
-                max_tokens=650   # reduced from 600 for stability
+                temperature=0.01,
+                max_tokens=800
             )
 
             raw_output = response.choices[0].message.content
+
+            if not raw_output or raw_output.strip() == "":
+                st.error("Model returned empty response.")
+                st.stop()
+
+            raw_output = raw_output.strip()
 
         except Exception as e:
             st.error(f"Actual error: {e}")
             st.stop()
 
-        # -------- SAFE FORMATTING --------
-        formatted_output = raw_output.replace("**", "")
+    # -------- SAFE FORMATTING --------
+    formatted_output = raw_output.replace("**", "")
 
-        formatted_output = formatted_output.replace(
-            "PROBLEM REPRESENTATION",
-            "<strong>PROBLEM REPRESENTATION</strong>"
-        ).replace(
-            "DOMINANT SYNDROME",
-            "<br><br><strong>DOMINANT SYNDROME</strong>"
-        ).replace(
-            "TOP 3 DIFFERENTIALS",
-            "<br><br><strong>TOP 3 DIFFERENTIALS</strong>"
-        ).replace(
-            "RED FLAGS",
-            "<br><br><strong>RED FLAGS</strong>"
-        ).replace(
-            "BROAD MANAGEMENT PRINCIPLES",
-            "<br><br><strong>BROAD MANAGEMENT PRINCIPLES</strong>"
-        ).replace(
-            "CRITICAL MISSING INFORMATION",
-            "<br><br><strong>CRITICAL MISSING INFORMATION</strong>"
-        )
+    formatted_output = formatted_output.replace(
+        "PROBLEM REPRESENTATION",
+        "<strong>PROBLEM REPRESENTATION</strong>"
+    ).replace(
+        "DOMINANT SYNDROME",
+        "<br><br><strong>DOMINANT SYNDROME</strong>"
+    ).replace(
+        "TOP 3 DIFFERENTIALS",
+        "<br><br><strong>TOP 3 DIFFERENTIALS</strong>"
+    ).replace(
+        "RED FLAGS",
+        "<br><br><strong>RED FLAGS</strong>"
+    ).replace(
+        "BROAD MANAGEMENT PRINCIPLES",
+        "<br><br><strong>BROAD MANAGEMENT PRINCIPLES</strong>"
+    ).replace(
+        "CRITICAL MISSING INFORMATION",
+        "<br><br><strong>CRITICAL MISSING INFORMATION</strong>"
+    )
 
-        st.markdown("## Clinical Analysis")
-        st.markdown("---")
-        st.markdown(
-            f"<div class='output-card'>{formatted_output}</div>",
-            unsafe_allow_html=True
-        )
-
+    st.markdown("## Clinical Analysis")
+    st.markdown("---")
+    st.markdown(
+        f"<div class='output-card'>{formatted_output}</div>",
+        unsafe_allow_html=True
+    )
     # -------- FOOTER --------
 st.markdown("---")
 st.markdown(
