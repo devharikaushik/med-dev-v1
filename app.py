@@ -41,7 +41,8 @@ Behavior constraints:
 - For every major finding, connect finding -> mechanism -> syndrome/diagnosis.
 - Integrate all abnormal labs explicitly, especially in DOMINANT SYNDROME.
 - Avoid generic textbook lists or unanchored differentials.
-- Prioritize diagnoses using case-discriminating clues and clinical risk.
+- Prioritize diagnoses using Bayesian updating: pretest plausibility adjusted by case-specific discriminative evidence.
+- Enforce etiologic hierarchy in differentials: root cause -> intermediate mechanism -> downstream complication.
 - Use concise but complete sentences only.
 - Do not output chain-of-thought.
 
@@ -49,8 +50,9 @@ Internal quality checks before finalizing (do not reveal):
 1) All 6 required headings are present exactly once and in order.
 2) No section is empty or truncated.
 3) Problem representation explicitly integrates key clues and abnormal labs.
-4) TOP 3 DIFFERENTIALS has exactly 3 differentials, each linked to at least 3 major findings.
-5) Final output ends with a complete sentence.
+4) TOP 3 DIFFERENTIALS follows the exact schema with posterior probabilities, strict descending posterior order, and fixed etiologic hierarchy.
+5) Each differential includes at least 3 supporting clues and at least 1 opposing clue.
+6) Final output ends with a complete sentence.
 
 Output rules:
 - Return only the 6 required lines.
@@ -78,14 +80,16 @@ Clinical depth requirements:
 - PROBLEM REPRESENTATION: concise synthesis of acuity + key positives + discriminative clues + unifying concern.
 - DOMINANT SYNDROME: explicitly integrate abnormal labs and explain lab -> mechanism -> syndrome.
 - TOP 3 DIFFERENTIALS: exactly 3 diagnoses in this strict single-line template:
-  "Dx1: <diagnosis> (links: <finding1>; <finding2>; <finding3>) | Dx2: <diagnosis> (links: <finding1>; <finding2>; <finding3>) | Dx3: <diagnosis> (links: <finding1>; <finding2>; <finding3>)"
+  "Dx1: <diagnosis> [Posterior: <0.00-1.00>] [Hierarchy: root-cause] (For: <finding1>; <finding2>; <finding3> | Against: <counter-clue>) || Dx2: <diagnosis> [Posterior: <0.00-1.00>] [Hierarchy: intermediate-mechanism] (For: <finding1>; <finding2>; <finding3> | Against: <counter-clue>) || Dx3: <diagnosis> [Posterior: <0.00-1.00>] [Hierarchy: downstream-complication] (For: <finding1>; <finding2>; <finding3> | Against: <counter-clue>)"
+- Posterior probabilities must be strictly descending: Dx1 > Dx2 > Dx3.
 - RED FLAGS: immediate deterioration risks linked to this case.
 - BROAD MANAGEMENT PRINCIPLES: stabilization, targeted diagnostics, and early risk-mitigation priorities.
 - CRITICAL MISSING INFORMATION: highest-yield data that would change diagnosis or management now.
 
 Completeness requirements:
 - Internally verify all abnormal labs are integrated.
-- Internally verify each differential explains at least 3 major findings.
+- Internally verify each differential includes >=3 supporting clues and >=1 opposing clue.
+- Internally verify Bayesian ordering and etiologic hierarchy are correct.
 - Internally verify no section is incomplete.
 - Internally verify final word completes a sentence.
 
@@ -123,23 +127,64 @@ def is_complete_sentence(text: str) -> bool:
     return bool(stripped) and bool(re.search(r"[.!?]$", stripped))
 
 
+def parse_posterior(raw_value: str) -> Optional[float]:
+    try:
+        posterior = float(raw_value)
+    except ValueError:
+        return None
+    if posterior < 0.0 or posterior > 1.0:
+        return None
+    return posterior
+
+
 def has_three_supported_differentials(top3_line: str) -> bool:
-    blocks = [b.strip() for b in top3_line.split("|")]
+    blocks = [b.strip() for b in re.split(r"\s*\|\|\s*", top3_line.strip())]
     if len(blocks) != 3:
         return False
 
-    pattern = re.compile(r"^Dx[123]:\s*.+\(\s*links:\s*.+\)\.?$", flags=re.IGNORECASE)
+    pattern = re.compile(
+        r"^Dx(?P<rank>[123]):\s*(?P<diagnosis>.+?)\s*"
+        r"\[Posterior:\s*(?P<posterior>0(?:\.\d+)?|1(?:\.0+)?)\]\s*"
+        r"\[Hierarchy:\s*(?P<hierarchy>root-cause|intermediate-mechanism|downstream-complication)\]\s*"
+        r"\(For:\s*(?P<for>.+?)\s*\|\s*Against:\s*(?P<against>.+?)\)\.?$",
+        flags=re.IGNORECASE,
+    )
+    expected_hierarchy = [
+        "root-cause",
+        "intermediate-mechanism",
+        "downstream-complication",
+    ]
+    posteriors = []
+
     for idx, block in enumerate(blocks, start=1):
-        if not re.search(rf"^Dx{idx}:", block, flags=re.IGNORECASE):
+        match = pattern.match(block)
+        if not match:
             return False
-        if not pattern.match(block):
+
+        rank = int(match.group("rank"))
+        if rank != idx:
             return False
-        links_match = re.search(r"links:\s*(.+)\)", block, flags=re.IGNORECASE)
-        if not links_match:
+
+        hierarchy = match.group("hierarchy").strip().lower()
+        if hierarchy != expected_hierarchy[idx - 1]:
             return False
-        clues = [c.strip() for c in links_match.group(1).split(";") if c.strip()]
-        if len(clues) < 3:
+
+        posterior = parse_posterior(match.group("posterior"))
+        if posterior is None:
             return False
+        posteriors.append(posterior)
+
+        for_clues = [c.strip() for c in match.group("for").split(";") if c.strip()]
+        if len(for_clues) < 3:
+            return False
+
+        against_clues = [c.strip() for c in match.group("against").split(";") if c.strip()]
+        if len(against_clues) < 1:
+            return False
+
+    if not (posteriors[0] > posteriors[1] > posteriors[2]):
+        return False
+
     return True
 
 
