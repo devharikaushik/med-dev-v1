@@ -9,6 +9,9 @@ client = Groq(
 
 st.set_page_config(page_title="Med-Dev", layout="wide")
 
+if "raw_output" not in st.session_state:
+    st.session_state.raw_output = None
+
 # -------- CUSTOM STYLING --------
 st.markdown("""
 <style>
@@ -131,7 +134,7 @@ BROAD MANAGEMENT PRINCIPLES - content
 CRITICAL MISSING INFORMATION - content
 
 Rules:
-• Each section must be exactly one concise line.
+• Each section must appear on a separate line.
 • Exactly 3 differentials separated by commas.
 • No numbering.
 • No extra commentary outside the format.
@@ -163,7 +166,7 @@ Follow the requested output format strictly."""
                 max_tokens=800
             )
 
-            raw_output = response.choices[0].message.content
+            st.session_state.raw_output = response.choices[0].message.content.strip()
 
             if not raw_output or raw_output.strip() == "":
                 st.error("Model returned empty response.")
@@ -174,15 +177,17 @@ Follow the requested output format strictly."""
         except Exception as e:
             st.error(f"Actual error: {e}")
             st.stop()
+if st.session_state.raw_output:
 
-st.markdown("## Clinical Analysis")
-st.markdown("---")
+    st.markdown("## Clinical Analysis")
+    st.markdown("---")
 
-st.markdown(
-    f"<div class='output-card'>{raw_output}</div>",
-    unsafe_allow_html=True
-)
+    st.markdown(
+        f"<div class='output-card'>{st.session_state.raw_output}</div>",
+        unsafe_allow_html=True
+    )
 
+ 
     # -------- FOOTER --------
 st.markdown("---")
 st.markdown(
