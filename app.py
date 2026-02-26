@@ -175,35 +175,14 @@ Follow the requested output format strictly."""
             st.error(f"Actual error: {e}")
             st.stop()
 
-    # -------- SAFE FORMATTING --------
-    formatted_output = raw_output.replace("**", "")
+st.markdown("## Clinical Analysis")
+st.markdown("---")
 
-    formatted_output = formatted_output.replace(
-        "PROBLEM REPRESENTATION",
-        "<strong>PROBLEM REPRESENTATION</strong>"
-    ).replace(
-        "DOMINANT SYNDROME",
-        "<br><br><strong>DOMINANT SYNDROME</strong>"
-    ).replace(
-        "TOP 3 DIFFERENTIALS",
-        "<br><br><strong>TOP 3 DIFFERENTIALS</strong>"
-    ).replace(
-        "RED FLAGS",
-        "<br><br><strong>RED FLAGS</strong>"
-    ).replace(
-        "BROAD MANAGEMENT PRINCIPLES",
-        "<br><br><strong>BROAD MANAGEMENT PRINCIPLES</strong>"
-    ).replace(
-        "CRITICAL MISSING INFORMATION",
-        "<br><br><strong>CRITICAL MISSING INFORMATION</strong>"
-    )
+st.markdown(
+    f"<div class='output-card'>{raw_output}</div>",
+    unsafe_allow_html=True
+)
 
-    st.markdown("## Clinical Analysis")
-    st.markdown("---")
-    st.markdown(
-        f"<div class='output-card'>{formatted_output}</div>",
-        unsafe_allow_html=True
-    )
     # -------- FOOTER --------
 st.markdown("---")
 st.markdown(
