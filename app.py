@@ -31,6 +31,8 @@ if "repair_used" not in st.session_state:
     st.session_state.repair_used = False
 if "generation_error" not in st.session_state:
     st.session_state.generation_error = None
+if "generation_warning" not in st.session_state:
+    st.session_state.generation_warning = None
 
 
 def build_system_prompt() -> str:
@@ -98,6 +100,31 @@ CASE DATA:
 """
 
 
+def build_repair_prompt(case_input: str, prior_output: str) -> str:
+    return f"""Rewrite the prior output into a strictly valid 6-line answer.
+
+Rules:
+- Keep exactly these 6 headings and order:
+  PROBLEM REPRESENTATION -
+  DOMINANT SYNDROME -
+  TOP 3 DIFFERENTIALS -
+  RED FLAGS -
+  BROAD MANAGEMENT PRINCIPLES -
+  CRITICAL MISSING INFORMATION -
+- Keep concise complete sentences.
+- Preserve clinical meaning; do not invent unrelated findings.
+- TOP 3 DIFFERENTIALS must follow this exact schema:
+  "Dx1: <diagnosis> [Posterior: <0.00-1.00>] [Hierarchy: root-cause] (For: <finding1>; <finding2>; <finding3> | Against: <counter-clue>) || Dx2: <diagnosis> [Posterior: <0.00-1.00>] [Hierarchy: intermediate-mechanism] (For: <finding1>; <finding2>; <finding3> | Against: <counter-clue>) || Dx3: <diagnosis> [Posterior: <0.00-1.00>] [Hierarchy: downstream-complication] (For: <finding1>; <finding2>; <finding3> | Against: <counter-clue>)"
+- Posterior values must be strictly descending: Dx1 > Dx2 > Dx3.
+
+CASE DATA:
+{case_input}
+
+PRIOR OUTPUT:
+{prior_output}
+"""
+
+
 def extract_sections(raw_text: str) -> Optional[Dict[str, str]]:
     parts = re.split(HEADING_SPLIT_REGEX, raw_text.strip())
     if len(parts) < 13:
@@ -128,24 +155,61 @@ def is_complete_sentence(text: str) -> bool:
 
 
 def parse_posterior(raw_value: str) -> Optional[float]:
+    value = raw_value.strip()
+    is_percent = value.endswith("%")
+    if is_percent:
+        value = value[:-1].strip()
+
     try:
-        posterior = float(raw_value)
+        posterior = float(value)
     except ValueError:
         return None
+
+    if is_percent:
+        posterior = posterior / 100.0
+    elif posterior > 1.0 and posterior <= 100.0:
+        posterior = posterior / 100.0
+
     if posterior < 0.0 or posterior > 1.0:
         return None
     return posterior
 
 
+def normalize_hierarchy(raw_value: str) -> Optional[str]:
+    normalized = re.sub(r"[\s_]+", "-", raw_value.strip().lower())
+    alias_map = {
+        "root-cause": "root-cause",
+        "rootcause": "root-cause",
+        "primary-cause": "root-cause",
+        "primary-etiology": "root-cause",
+        "upstream-cause": "root-cause",
+        "intermediate-mechanism": "intermediate-mechanism",
+        "intermediary-mechanism": "intermediate-mechanism",
+        "mechanistic-intermediate": "intermediate-mechanism",
+        "downstream-complication": "downstream-complication",
+        "downstream-effect": "downstream-complication",
+        "complication": "downstream-complication",
+    }
+    return alias_map.get(normalized)
+
+
+def split_clues(raw_value: str) -> list[str]:
+    return [c.strip(" .") for c in re.split(r"[;,]", raw_value) if c.strip()]
+
+
 def has_three_supported_differentials(top3_line: str) -> bool:
-    blocks = [b.strip() for b in re.split(r"\s*\|\|\s*", top3_line.strip())]
+    blocks = [
+        b.strip(" |")
+        for b in re.split(r"\s*\|\|\s*|\s*\|\s*(?=Dx[23]:)", top3_line.strip())
+        if b.strip()
+    ]
     if len(blocks) != 3:
         return False
 
     pattern = re.compile(
         r"^Dx(?P<rank>[123]):\s*(?P<diagnosis>.+?)\s*"
-        r"\[Posterior:\s*(?P<posterior>0(?:\.\d+)?|1(?:\.0+)?)\]\s*"
-        r"\[Hierarchy:\s*(?P<hierarchy>root-cause|intermediate-mechanism|downstream-complication)\]\s*"
+        r"\[Posterior:\s*(?P<posterior>[0-9]+(?:\.[0-9]+)?%?)\]\s*"
+        r"\[Hierarchy:\s*(?P<hierarchy>[^\]]+)\]\s*"
         r"\(For:\s*(?P<for>.+?)\s*\|\s*Against:\s*(?P<against>.+?)\)\.?$",
         flags=re.IGNORECASE,
     )
@@ -165,7 +229,9 @@ def has_three_supported_differentials(top3_line: str) -> bool:
         if rank != idx:
             return False
 
-        hierarchy = match.group("hierarchy").strip().lower()
+        hierarchy = normalize_hierarchy(match.group("hierarchy"))
+        if hierarchy is None:
+            return False
         if hierarchy != expected_hierarchy[idx - 1]:
             return False
 
@@ -174,11 +240,15 @@ def has_three_supported_differentials(top3_line: str) -> bool:
             return False
         posteriors.append(posterior)
 
-        for_clues = [c.strip() for c in match.group("for").split(";") if c.strip()]
+        diagnosis = match.group("diagnosis").strip()
+        if len(diagnosis) < 3:
+            return False
+
+        for_clues = split_clues(match.group("for"))
         if len(for_clues) < 3:
             return False
 
-        against_clues = [c.strip() for c in match.group("against").split(";") if c.strip()]
+        against_clues = split_clues(match.group("against"))
         if len(against_clues) < 1:
             return False
 
@@ -344,6 +414,7 @@ st.markdown("---")
 if st.button("Generate Clinical Analysis", use_container_width=True):
     st.session_state.raw_output = None
     st.session_state.generation_error = None
+    st.session_state.generation_warning = None
     st.session_state.repair_used = False
 
     case_input = (
@@ -357,7 +428,8 @@ if st.button("Generate Clinical Analysis", use_container_width=True):
     system_prompt = build_system_prompt()
     user_prompt = build_user_prompt(case_input)
 
-    max_attempts = 3
+    max_attempts = 4
+    best_candidate = ""
 
     with st.spinner("Med-Dev is reasoning..."):
         try:
@@ -394,14 +466,64 @@ if st.button("Generate Clinical Analysis", use_container_width=True):
                 if likely_truncated:
                     st.session_state.repair_used = True
 
+                if candidate:
+                    best_candidate = candidate
+
                 if candidate and is_valid_output(candidate) and not likely_truncated:
                     st.session_state.raw_output = candidate
                     break
 
+                if candidate and not likely_truncated:
+                    st.session_state.repair_used = True
+                    repair_response = client.chat.completions.create(
+                        model="openai/gpt-oss-120b",
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {
+                                "role": "user",
+                                "content": build_repair_prompt(case_input, candidate),
+                            },
+                        ],
+                        temperature=0.0,
+                        max_tokens=2400,
+                    )
+
+                    repaired_candidate = ""
+                    repaired_finish = ""
+                    if repair_response and repair_response.choices:
+                        repair_choice = repair_response.choices[0]
+                        repaired_finish = (
+                            getattr(repair_choice, "finish_reason", "") or ""
+                        ).lower()
+                        repair_message = getattr(repair_choice, "message", None)
+                        if repair_message:
+                            repaired_candidate = (
+                                getattr(repair_message, "content", "") or ""
+                            ).strip()
+
+                    repaired_truncated = repaired_finish in {"length", "max_tokens"}
+                    if repaired_candidate:
+                        best_candidate = repaired_candidate
+
+                    if (
+                        repaired_candidate
+                        and is_valid_output(repaired_candidate)
+                        and not repaired_truncated
+                    ):
+                        st.session_state.raw_output = repaired_candidate
+                        break
+
             if not st.session_state.raw_output:
-                st.session_state.generation_error = (
-                    "Unable to generate a complete 6-section analysis after retries. Please rerun."
-                )
+                if best_candidate:
+                    st.session_state.raw_output = best_candidate
+                    st.session_state.generation_warning = (
+                        "Output shown, but strict Bayesian/schema enforcement was partial. "
+                        "Click generate again for a stricter pass."
+                    )
+                else:
+                    st.session_state.generation_error = (
+                        "Unable to generate a complete 6-section analysis after retries. Please rerun."
+                    )
 
         except Exception:
             st.session_state.generation_error = "Generation failed. Please retry."
@@ -409,6 +531,9 @@ if st.button("Generate Clinical Analysis", use_container_width=True):
 # -------- OUTPUT RENDERING --------
 if st.session_state.generation_error:
     st.error(st.session_state.generation_error)
+
+if st.session_state.generation_warning:
+    st.warning(st.session_state.generation_warning)
 
 if st.session_state.raw_output:
     st.markdown("## Clinical Analysis")
